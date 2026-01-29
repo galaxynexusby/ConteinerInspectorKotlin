@@ -1,25 +1,30 @@
 package ru.vibe.containerinspector.ui.screens
 
 import android.content.Context
-import android.net.Uri
 import android.util.Log
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import coil.compose.rememberAsyncImagePainter
+import ru.vibe.containerinspector.R
 import ru.vibe.containerinspector.viewmodel.MainViewModel
 import java.io.File
 import java.text.SimpleDateFormat
@@ -30,7 +35,7 @@ import java.util.concurrent.Executor
 fun InspectionScreen(viewModel: MainViewModel, onComplete: () -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val state by viewModel.sessionState.collectAsState()
+    val activeReport by viewModel.activeReport.collectAsState()
     
     val steps = listOf(
         "Контейнер открыт и пуст",
@@ -44,34 +49,59 @@ fun InspectionScreen(viewModel: MainViewModel, onComplete: () -> Unit) {
 
     var imageCapture: ImageCapture? by remember { mutableStateOf(null) }
     val mainExecutor = ContextCompat.getMainExecutor(context)
+    
+    // Tracking if the photo for CURRENT step is taken
+    var isPhotoTakenForCurrentStep by remember { mutableStateOf(false) }
+
+    val report = activeReport ?: return // Defensive check
+
+    val primaryBg = colorResource(id = R.color.primary_background)
+    val accentOrange = colorResource(id = R.color.accent_orange)
 
     Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally
+        modifier = Modifier
+            .fillMaxSize()
+            .background(primaryBg)
     ) {
-        // Заголовок
-        Surface(
-            color = MaterialTheme.colorScheme.primaryContainer,
-            modifier = Modifier.fillMaxWidth()
+        // Top Bar: Step Indicator
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    "Контейнер: ${state.containerNumber}", 
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    "Шаг ${state.currentStep}/7: ${steps.getOrElse(state.currentStep - 1) { "" }}",
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                LinearProgressIndicator(
-                    progress = state.currentStep / 7f,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-                )
-            }
+            Text(
+                "Шаг ${report.currentStep + 1} из 7",
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                steps.getOrElse(report.currentStep) { "" },
+                color = Color.Gray,
+                fontSize = 14.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = (report.currentStep + 1) / 7f,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp),
+                color = accentOrange,
+                trackColor = Color.DarkGray,
+                strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
+            )
         }
 
-        // Камера
-        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+        // Camera Preview
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .background(Color.Black, RoundedCornerShape(12.dp))
+        ) {
             AndroidView(
                 factory = { ctx ->
                     PreviewView(ctx).apply {
@@ -105,29 +135,76 @@ fun InspectionScreen(viewModel: MainViewModel, onComplete: () -> Unit) {
                     }, mainExecutor)
                 }
             )
+            
+            if (isPhotoTakenForCurrentStep) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.5f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.CheckCircle,
+                        contentDescription = "Фото сделано",
+                        tint = Color.Green,
+                        modifier = Modifier.size(80.dp)
+                    )
+                }
+            }
         }
 
-        // Кнопка съемки
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            tonalElevation = 8.dp
+        // Bottom Controls
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Button(
+            // Postpone
+            TextButton(onClick = { viewModel.postponeInspection() }) {
+                Text("ОТЛОЖИТЬ", color = Color.Gray, fontWeight = FontWeight.Bold)
+            }
+
+            // Capture Button
+            FloatingActionButton(
                 onClick = {
-                    takePhoto(context, imageCapture!!, mainExecutor) { path ->
-                        viewModel.addPhoto(path)
-                        if (state.currentStep == 7) {
-                            onComplete()
+                    imageCapture?.let { capture ->
+                        takePhoto(context, capture, mainExecutor) { path ->
+                            viewModel.addPhoto(path)
+                            isPhotoTakenForCurrentStep = true
                         }
                     }
                 },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-                    .height(80.dp), // Большая кнопка для работы в перчатках
-                shape = MaterialTheme.shapes.medium
+                containerColor = accentOrange,
+                contentColor = Color.White,
+                shape = CircleShape,
+                modifier = Modifier.size(72.dp)
             ) {
-                Text("СДЕЛАТЬ ФОТО", style = MaterialTheme.typography.headlineSmall)
+                Icon(Icons.Default.PhotoCamera, contentDescription = "Снять", modifier = Modifier.size(36.dp))
+            }
+
+            // Next Button
+            Button(
+                onClick = {
+                    if (report.currentStep >= 6) {
+                        viewModel.nextStep()
+                        onComplete()
+                    } else {
+                        viewModel.nextStep()
+                        isPhotoTakenForCurrentStep = false
+                    }
+                },
+                enabled = isPhotoTakenForCurrentStep,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = accentOrange,
+                    disabledContainerColor = Color.DarkGray
+                ),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.width(120.dp).height(56.dp)
+            ) {
+                val btnText = if (report.currentStep >= 6) "ЗАВЕРШИТЬ" else "ДАЛЕЕ"
+                Text(btnText, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -141,7 +218,7 @@ private fun takePhoto(
 ) {
     val photoFile = File(
         context.externalMediaDirs.firstOrNull(),
-        SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.US).format(System.currentTimeMillis()) + ".jpg"
+        "IMG_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis()) + ".jpg"
     )
 
     val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()

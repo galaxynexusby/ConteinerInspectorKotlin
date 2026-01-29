@@ -7,6 +7,8 @@ import androidx.work.WorkerParameters
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.asRequestBody
+import ru.vibe.containerinspector.data.AppDatabase
+import ru.vibe.containerinspector.data.ReportStatus
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -14,43 +16,56 @@ import java.util.*
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     private val client = OkHttpClient()
-    
-    // В реальном приложении эти данные должны быть в настройках или защищенном хранилище
-    private val NEXTCLOUD_URL = "https://your-nextcloud-instance.com/remote.php/dav/files/user/"
-    private val AUTH_HEADER = "Basic " + android.util.Base64.encodeToString("user:password".toByteArray(), android.util.Base64.NO_WRAP)
+    private val database = AppDatabase.getDatabase(context)
+    private val dao = database.operatorDao()
 
     override suspend fun doWork(): Result {
-        val containerNumber = inputData.getString("container_number") ?: return Result.failure()
-        val shift = inputData.getInt("shift", 1)
+        val reportId = inputData.getLong("report_id", -1L)
+        if (reportId == -1L) return Result.failure()
+        
         val pdfPath = inputData.getString("pdf_path") ?: return Result.failure()
         val pdfFile = File(pdfPath)
-
         if (!pdfFile.exists()) return Result.failure()
 
-        val year = SimpleDateFormat("yyyy", Locale.US).format(Date())
-        val month = getRussianMonthName(Calendar.getInstance().get(Calendar.MONTH))
+        val report = dao.getReportById(reportId) ?: return Result.failure()
+        val config = dao.getConfig() ?: return Result.failure()
+
+        val nextcloudUrl = config.nextcloudUrl ?: return Result.failure()
+        val user = config.nextcloudUser ?: ""
+        val pass = config.nextcloudPass ?: ""
+        
+        // Ensure URL ends with /remote.php/dav/files/[user]/
+        val baseUrl = if (nextcloudUrl.endsWith("/")) nextcloudUrl else "$nextcloudUrl/"
+        val fullNextcloudUrl = "${baseUrl}remote.php/dav/files/$user/"
+        
+        val authHeader = "Basic " + android.util.Base64.encodeToString("$user:$pass".toByteArray(), android.util.Base64.NO_WRAP)
+
+        val year = SimpleDateFormat("yyyy", Locale.US).format(Date(report.timestamp))
+        val month = getRussianMonthName(Calendar.getInstance().apply { timeInMillis = report.timestamp }.get(Calendar.MONTH))
         
         // Путь на Nextcloud: /[Год]/[Месяц]/Смена[N]/[Номер_Контейнера]/
-        val targetDir = "$year/$month/Смена$shift/$containerNumber/"
-        val targetUrl = "$NEXTCLOUD_URL$targetDir${pdfFile.name}"
+        val targetDir = "$year/$month/Смена${report.shift}/${report.containerNumber}/"
+        val targetFileUrl = "$fullNextcloudUrl$targetDir${pdfFile.name}"
 
         return try {
-            // 1. Создание структуры папок (через MKCOL, упрощенно)
-            createFolders(targetDir)
+            // 1. Создание структуры папок
+            createFolders(fullNextcloudUrl, targetDir, authHeader)
             
             // 2. Загрузка файла
             val request = Request.Builder()
-                .url(targetUrl)
+                .url(targetFileUrl)
                 .put(pdfFile.asRequestBody("application/pdf".toMediaTypeOrNull()))
-                .addHeader("Authorization", AUTH_HEADER)
+                .addHeader("Authorization", authHeader)
                 .build()
 
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
                     Log.d("SyncWorker", "Successfully uploaded ${pdfFile.name}")
+                    // Обновляем статус в БД
+                    dao.updateReport(report.copy(status = ReportStatus.SENT))
                     Result.success()
                 } else {
-                    Log.e("SyncWorker", "Upload failed: ${response.code}")
+                    Log.e("SyncWorker", "Upload failed: ${response.code} ${response.message}")
                     Result.retry()
                 }
             }
@@ -60,20 +75,24 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         }
     }
 
-    private fun createFolders(path: String) {
+    private fun createFolders(rootUrl: String, path: String, authHeader: String) {
         val segments = path.split("/").filter { it.isNotEmpty() }
         var currentPath = ""
         segments.forEach { segment ->
             currentPath += "$segment/"
-            val url = "$NEXTCLOUD_URL$currentPath"
+            val url = "$rootUrl$currentPath"
             val request = Request.Builder()
                 .url(url)
                 .method("MKCOL", null)
-                .addHeader("Authorization", AUTH_HEADER)
+                .addHeader("Authorization", authHeader)
                 .build()
             
             // Мы не проверяем успех, так как папка может уже существовать (405)
-            client.newCall(request).execute().close()
+            try {
+                client.newCall(request).execute().close()
+            } catch (e: Exception) {
+                Log.w("SyncWorker", "Folder creation failed for $segment", e)
+            }
         }
     }
 
