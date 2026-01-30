@@ -20,7 +20,7 @@ object ContainerValidator {
         val checkDigit = digits.last().digitToInt()
         val calculatedCheckDigit = calculateCheckDigit(clean.substring(0, 10))
 
-        return checkDigit == calculatedCheckDigit % 10 // ISO 6346 says mod 11, then last digit of that is check digit? Actually mod 11 and result 0-9 is check digit. 10 is 0.
+        return checkDigit == calculatedCheckDigit
     }
 
     private fun calculateCheckDigit(base: String): Int {
@@ -29,18 +29,17 @@ object ContainerValidator {
             val char = base[i]
             val value = if (char.isLetter()) {
                 val alphaVal = char.code - 'A'.code + 10
-                // Letters A=10...Z=38, but some numbers are skipped in ISO 6346: 11, 22, 33
                 var adjusted = alphaVal
-                if (alphaVal >= 11) adjusted++
-                if (alphaVal >= 22) adjusted++
-                if (alphaVal >= 33) adjusted++
+                if (adjusted >= 11) adjusted++
+                if (adjusted >= 22) adjusted++
+                if (adjusted >= 33) adjusted++
                 adjusted
             } else {
                 char.digitToInt()
             }
-            sum += value * 2.0.pow(i).toInt()
+            sum += (value * 2.0.pow(i).toInt())
         }
         val remainder = sum % 11
-        return if (remainder == 10) 0 else remainder
+        return remainder % 10 // ISO 6346: if remainder is 10, check digit is 0. 
     }
 }

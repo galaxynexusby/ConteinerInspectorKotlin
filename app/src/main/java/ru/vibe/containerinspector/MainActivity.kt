@@ -14,6 +14,9 @@ import androidx.navigation.compose.rememberNavController
 import ru.vibe.containerinspector.ui.navigation.NavGraph
 import ru.vibe.containerinspector.viewmodel.MainViewModel
 
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.ui.graphics.Color
+
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
 
@@ -29,12 +32,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         
         checkCameraPermission()
 
         setContent {
             MaterialTheme {
-                Surface(color = MaterialTheme.colorScheme.background) {
+                Surface(color = Color.Transparent) {
                     val navController = rememberNavController()
                     NavGraph(navController = navController, viewModel = viewModel)
                 }

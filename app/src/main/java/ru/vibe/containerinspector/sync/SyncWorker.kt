@@ -9,7 +9,10 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.asRequestBody
 import ru.vibe.containerinspector.data.AppDatabase
 import ru.vibe.containerinspector.data.ReportStatus
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import java.io.File
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -34,45 +37,73 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val user = config.nextcloudUser ?: ""
         val pass = config.nextcloudPass ?: ""
         
-        // Ensure URL ends with /remote.php/dav/files/[user]/
         val baseUrl = if (nextcloudUrl.endsWith("/")) nextcloudUrl else "$nextcloudUrl/"
         val fullNextcloudUrl = "${baseUrl}remote.php/dav/files/$user/"
-        
         val authHeader = "Basic " + android.util.Base64.encodeToString("$user:$pass".toByteArray(), android.util.Base64.NO_WRAP)
 
         val year = SimpleDateFormat("yyyy", Locale.US).format(Date(report.timestamp))
         val month = getRussianMonthName(Calendar.getInstance().apply { timeInMillis = report.timestamp }.get(Calendar.MONTH))
-        
-        // Путь на Nextcloud: /[Год]/[Месяц]/Смена[N]/[Номер_Контейнера]/
         val targetDir = "$year/$month/Смена${report.shift}/${report.containerNumber}/"
-        val targetFileUrl = "$fullNextcloudUrl$targetDir${pdfFile.name}"
+
+        val photoPaths = listOfNotNull(report.photo1, report.photo2, report.photo3, report.photo4, report.photo5, report.photo6, report.photo7)
 
         return try {
-            // 1. Создание структуры папок
             createFolders(fullNextcloudUrl, targetDir, authHeader)
             
-            // 2. Загрузка файла
-            val request = Request.Builder()
-                .url(targetFileUrl)
-                .put(pdfFile.asRequestBody("application/pdf".toMediaTypeOrNull()))
-                .addHeader("Authorization", authHeader)
-                .build()
+            // 1. Загрузка PDF
+            uploadFile("$fullNextcloudUrl$targetDir${pdfFile.name}", pdfFile, "application/pdf", authHeader)
 
-            client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    Log.d("SyncWorker", "Successfully uploaded ${pdfFile.name}")
-                    // Обновляем статус в БД
-                    dao.updateReport(report.copy(status = ReportStatus.SENT))
-                    Result.success()
-                } else {
-                    Log.e("SyncWorker", "Upload failed: ${response.code} ${response.message}")
-                    Result.retry()
+            // 2. Загрузка сжатых фото
+            photoPaths.forEach { path ->
+                val originalFile = File(path)
+                if (originalFile.exists()) {
+                    val compressedFile = compressImage(originalFile)
+                    uploadFile("$fullNextcloudUrl$targetDir${originalFile.name}", compressedFile, "image/jpeg", authHeader)
+                    // Удаляем временный сжатый файл после загрузки
+                    if (compressedFile.absolutePath != originalFile.absolutePath) {
+                        compressedFile.delete()
+                    }
                 }
             }
+
+            Log.d("SyncWorker", "Successfully uploaded all files for ${report.containerNumber}")
+            dao.updateReport(report.copy(status = ReportStatus.SENT))
+            Result.success()
         } catch (e: Exception) {
             Log.e("SyncWorker", "Sync error", e)
             Result.retry()
         }
+    }
+
+    private fun uploadFile(url: String, file: File, contentType: String, authHeader: String) {
+        val request = Request.Builder()
+            .url(url)
+            .put(file.asRequestBody(contentType.toMediaTypeOrNull()))
+            .addHeader("Authorization", authHeader)
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw Exception("Upload failed: ${response.code} for $url")
+            }
+        }
+    }
+
+    private fun compressImage(file: File): File {
+        val bitmap = BitmapFactory.decodeFile(file.absolutePath) ?: return file
+        // Ограничиваем общие 8 файлов (1 PDF + 7 фото) в 3 Мб. 
+        // Каждое фото должно быть ~350 Кб.
+        val targetFile = File(applicationContext.cacheDir, "temp_" + file.name)
+        var quality = 85
+        
+        do {
+            FileOutputStream(targetFile).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out)
+            }
+            quality -= 10
+        } while (targetFile.length() > 400 * 1024 && quality > 10)
+        
+        return targetFile
     }
 
     private fun createFolders(rootUrl: String, path: String, authHeader: String) {
@@ -87,7 +118,6 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 .addHeader("Authorization", authHeader)
                 .build()
             
-            // Мы не проверяем успех, так как папка может уже существовать (405)
             try {
                 client.newCall(request).execute().close()
             } catch (e: Exception) {

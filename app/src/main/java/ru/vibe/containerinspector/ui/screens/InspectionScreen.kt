@@ -30,12 +30,28 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.Executor
+import ru.vibe.containerinspector.ui.components.CameraOverlay
+import ru.vibe.containerinspector.logic.AutoTorchManager
+import ru.vibe.containerinspector.data.InspectionReport
 
 @Composable
 fun InspectionScreen(viewModel: MainViewModel, onComplete: () -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val activeReport by viewModel.activeReport.collectAsState()
+
+    val report = activeReport ?: return // Defensive check
+    
+    val autoTorchManager = remember {
+        AutoTorchManager(context, getCurrentStep = { viewModel.activeReport.value?.currentStep ?: 0 })
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.addObserver(autoTorchManager)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(autoTorchManager)
+        }
+    }
     
     val steps = listOf(
         "Контейнер открыт и пуст",
@@ -52,8 +68,6 @@ fun InspectionScreen(viewModel: MainViewModel, onComplete: () -> Unit) {
     
     // Tracking if the photo for CURRENT step is taken
     var isPhotoTakenForCurrentStep by remember { mutableStateOf(false) }
-
-    val report = activeReport ?: return // Defensive check
 
     val primaryBg = colorResource(id = R.color.primary_background)
     val accentOrange = colorResource(id = R.color.accent_orange)
@@ -123,18 +137,51 @@ fun InspectionScreen(viewModel: MainViewModel, onComplete: () -> Unit) {
 
                         try {
                             cameraProvider.unbindAll()
-                            cameraProvider.bindToLifecycle(
+                            val camera = cameraProvider.bindToLifecycle(
                                 lifecycleOwner,
                                 CameraSelector.DEFAULT_BACK_CAMERA,
                                 preview,
                                 imageCapture
                             )
+                            autoTorchManager.setCameraControl(camera.cameraControl)
                         } catch (e: Exception) {
                             Log.e("Inspection", "Binding failed", e)
                         }
                     }, mainExecutor)
                 }
             )
+
+            // AR Viewfinder Overlay
+            CameraOverlay(currentStep = report.currentStep)
+
+            // Auto-torch Indicator Icon
+            val currentStep = report.currentStep
+            val isAutoTorchActiveStep = currentStep in 0..2
+            if (isAutoTorchActiveStep) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp)
+                        .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                        .padding(8.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.FlashAuto,
+                            contentDescription = "Авто-фонарик",
+                            tint = accentOrange,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            "A",
+                            color = accentOrange,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
             
             if (isPhotoTakenForCurrentStep) {
                 Box(

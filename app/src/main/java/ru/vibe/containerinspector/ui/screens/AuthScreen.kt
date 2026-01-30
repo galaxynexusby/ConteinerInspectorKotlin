@@ -80,7 +80,12 @@ fun AuthScreen(
                 ) {
                     operators.forEach { op ->
                         DropdownMenuItem(
-                            text = { Text(op.name) },
+                            text = { 
+                                Text(
+                                    text = op.name,
+                                    color = Color.Black // Принудительно черный цвет для лучшей видимости на светлом фоне
+                                )
+                            },
                             onClick = {
                                 viewModel.setOperator(op.name)
                                 viewModel.setShift(op.shift)

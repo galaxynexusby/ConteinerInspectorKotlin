@@ -37,6 +37,13 @@ fun OCRScanScreen(viewModel: MainViewModel, onScanSuccess: () -> Unit) {
     
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     val textRecognizer = remember { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            cameraExecutor.shutdown()
+            textRecognizer.close()
+        }
+    }
     
     val primaryBg = colorResource(id = R.color.primary_background)
     val accentOrange = colorResource(id = R.color.accent_orange)

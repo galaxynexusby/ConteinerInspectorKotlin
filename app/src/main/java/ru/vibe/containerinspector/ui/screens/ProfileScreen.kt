@@ -127,11 +127,13 @@ fun ProfileScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                ProfileActionButton(
-                    icon = Icons.Default.Settings,
-                    label = "Настройки оборудования",
-                    onClick = onNavigateToAdmin
-                )
+                if (sessionState.isAdmin) {
+                    ProfileActionButton(
+                        icon = Icons.Default.Settings,
+                        label = "Настройки оборудования",
+                        onClick = onNavigateToAdmin
+                    )
+                }
                 
                 ProfileActionButton(
                     icon = Icons.Default.Logout,

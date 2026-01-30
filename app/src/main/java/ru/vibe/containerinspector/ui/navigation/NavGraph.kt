@@ -2,6 +2,8 @@ package ru.vibe.containerinspector.ui.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.*
 import ru.vibe.containerinspector.ui.screens.*
@@ -17,11 +19,14 @@ sealed class Screen(val route: String) {
     object History : Screen("history")
     object Profile : Screen("profile")
     object AdminLogin : Screen("admin_login")
+    object AdminDashboard : Screen("admin_dashboard")
     object Settings : Screen("settings")
 }
 
 @Composable
 fun NavGraph(navController: NavHostController, viewModel: MainViewModel) {
+    val sessionState by viewModel.sessionState.collectAsState()
+
     NavHost(
         navController = navController,
         startDestination = Screen.Auth.route
@@ -30,7 +35,8 @@ fun NavGraph(navController: NavHostController, viewModel: MainViewModel) {
             AuthScreen(
                 viewModel = viewModel,
                 onAuthSuccess = {
-                    navController.navigate(Screen.Dashboard.route) {
+                    val target = if (sessionState.isAdmin) Screen.AdminDashboard.route else Screen.Dashboard.route
+                    navController.navigate(target) {
                         popUpTo(Screen.Auth.route) { inclusive = true }
                     }
                 }
@@ -106,6 +112,17 @@ fun NavGraph(navController: NavHostController, viewModel: MainViewModel) {
                     popUpTo(Screen.Dashboard.route) { inclusive = true }
                 }
             }
+        }
+        composable(Screen.AdminDashboard.route) {
+            AdminDashboardScreen(
+                viewModel = viewModel,
+                onLogout = {
+                    viewModel.resetSession()
+                    navController.navigate(Screen.Auth.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            )
         }
     }
 }
