@@ -27,6 +27,13 @@ fun AuthScreen(
     var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
 
+    // Auto-login logic: if operator is already loaded from SharedPreferences
+    LaunchedEffect(state.operator) {
+        if (state.operator.isNotEmpty() && state.operator != "admin") {
+            onAuthSuccess()
+        }
+    }
+
     val primaryBg = colorResource(id = R.color.primary_background)
     val accentOrange = colorResource(id = R.color.accent_orange)
 

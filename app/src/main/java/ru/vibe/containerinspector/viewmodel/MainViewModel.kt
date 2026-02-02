@@ -3,6 +3,7 @@ package ru.vibe.containerinspector.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import android.content.Context
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import ru.vibe.containerinspector.data.AppDatabase
@@ -47,8 +48,14 @@ sealed class RemoteCheckState {
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase.getDatabase(application)
     private val operatorDao = database.operatorDao()
+    private val prefs = application.getSharedPreferences("inspector_prefs", Context.MODE_PRIVATE)
 
-    private val _sessionState = MutableStateFlow(SessionState())
+    private val _sessionState = MutableStateFlow(
+        SessionState(
+            operator = prefs.getString("last_operator", "") ?: "",
+            shift = prefs.getInt("last_shift", 1)
+        )
+    )
     val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
 
     private val _ncConnectionState = MutableStateFlow<ConnectionState>(ConnectionState.Idle)
@@ -94,6 +101,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setOperator(name: String) {
+        prefs.edit().putString("last_operator", name).apply()
         _sessionState.value = _sessionState.value.copy(
             operator = name,
             isAdmin = name == "admin"
@@ -101,6 +109,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setShift(shift: Int) {
+        prefs.edit().putInt("last_shift", shift).apply()
         _sessionState.value = _sessionState.value.copy(shift = shift)
     }
 
@@ -382,6 +391,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun resetSession() {
+        prefs.edit().remove("last_operator").remove("last_shift").apply()
         _sessionState.value = SessionState()
         _activeReport.value = null
     }

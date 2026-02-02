@@ -101,9 +101,11 @@ fun NavGraph(navController: NavHostController, viewModel: MainViewModel) {
             )
         }
         composable(Screen.Inspection.route) {
-            InspectionScreen(viewModel) {
-                navController.navigate(Screen.Summary.route)
-            }
+            InspectionScreen(
+                viewModel = viewModel,
+                onPostpone = { navController.popBackStack() },
+                onComplete = { navController.navigate(Screen.Summary.route) }
+            )
         }
         composable(Screen.Summary.route) {
             SummaryScreen(viewModel) {

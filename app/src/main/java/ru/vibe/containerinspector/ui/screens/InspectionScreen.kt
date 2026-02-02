@@ -35,7 +35,7 @@ import ru.vibe.containerinspector.logic.AutoTorchManager
 import ru.vibe.containerinspector.data.InspectionReport
 
 @Composable
-fun InspectionScreen(viewModel: MainViewModel, onComplete: () -> Unit) {
+fun InspectionScreen(viewModel: MainViewModel, onPostpone: () -> Unit, onComplete: () -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val activeReport by viewModel.activeReport.collectAsState()
@@ -209,7 +209,10 @@ fun InspectionScreen(viewModel: MainViewModel, onComplete: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Postpone
-            TextButton(onClick = { viewModel.postponeInspection() }) {
+            TextButton(onClick = { 
+                viewModel.postponeInspection() 
+                onPostpone()
+            }) {
                 Text("ОТЛОЖИТЬ", color = Color.Gray, fontWeight = FontWeight.Bold)
             }
 
@@ -248,7 +251,7 @@ fun InspectionScreen(viewModel: MainViewModel, onComplete: () -> Unit) {
                     disabledContainerColor = Color.DarkGray
                 ),
                 shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.width(120.dp).height(56.dp)
+                modifier = Modifier.width(140.dp).height(56.dp)
             ) {
                 val btnText = if (report.currentStep >= 6) "ЗАВЕРШИТЬ" else "ДАЛЕЕ"
                 Text(btnText, fontWeight = FontWeight.Bold)
